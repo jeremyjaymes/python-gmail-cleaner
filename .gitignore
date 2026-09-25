@@ -1,0 +1,46 @@
+# Local OAuth client configuration and user tokens
+credentials.json
+token.json
+client_secret*.json
+oauth*.json
+*credentials*.json
+*token*.json
+
+# Other local secrets
+.env
+.env.*
+*.env
+.envrc
+!.env.example
+secrets/
+.secrets/
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+
+# Mail exports and local data
+*.eml
+*.mbox
+*.db
+*.sqlite
+*.sqlite3
+*.log
+data/
+exports/
+
+# Python environments and generated files
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
