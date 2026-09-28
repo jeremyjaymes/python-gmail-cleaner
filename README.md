@@ -11,7 +11,7 @@ Inbox cleanup is a useful exercise in working with a real API. The goal is to un
 1. A local OAuth flow grants the script the `gmail.modify` scope. Google stores the downloaded desktop app client configuration in `credentials.json`; the script saves the resulting user token in `token.json` for later runs.
 2. `--query` is sent to Gmail's `messages.list` endpoint. The script reads only the first page of results, up to `--max` messages.
 3. For each result, `messages.get` fetches the **From** and **Subject** headers for display.
-4. The default `preview` action makes no mailbox changes. For `archive`, `trash`, or `label`, the script also makes no changes unless `--live` is present. A live archive removes the `INBOX` label; a live trash action adds the `TRASH` label using `messages.batchModify`.
+4. The default `preview` action makes no mailbox changes. For `archive`, `trash`, or `label`, the script also makes no changes unless `--live` is present. A live archive removes the `INBOX` label with `messages.batchModify`; a live trash action calls `messages.trash` once per message. If a trash request fails, the script reports how many messages it already moved.
 5. For a live `label` action, `get_or_create_label` searches existing labels by name without regard to capitalization. If it finds one, the script applies its ID to the matching messages. Otherwise it attempts to create a new label, then applies it. A dry run only prints the proposed label name; it does not look up or create a label.
 
 This operates on **messages**, which may be individual members of a conversation. Gmail's search results and label behavior are documented in the [Gmail API guide](https://developers.google.com/workspace/gmail/api/guides/list-messages) and [label guide](https://developers.google.com/workspace/gmail/api/guides/labels).
@@ -36,7 +36,7 @@ Use Python 3.10.7 or newer. From this directory:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+python -m pip install -r requirements.txt
 ```
 
 ### 3. Preview a small search
@@ -44,7 +44,7 @@ python -m pip install google-api-python-client google-auth-httplib2 google-auth-
 Run commands **from this directory**, because the script looks for `credentials.json` and `token.json` in the current working directory.
 
 ```sh
-python gmail_clean.py --query "category:promotions older_than:6m" --max 10
+python gmail_cleaner.py --query "category:promotions older_than:6m" --max 10
 ```
 
 The first run opens a browser for Google authorization. After consent, the script creates `token.json`. An External app in Testing may require reauthorization when its test-user authorization expires; see [Google's audience guidance](https://support.google.com/cloud/answer/15549945).
@@ -53,22 +53,22 @@ The first run opens a browser for Google authorization. After consent, the scrip
 
 ```sh
 # List matching sender and subject headers; no mailbox changes.
-python gmail_clean.py --query "from:newsletter@example.com" --max 10
+python gmail_cleaner.py --query "from:newsletter@example.com" --max 10
 
 # Show what an archive would do; still no mailbox changes.
-python gmail_clean.py --query "category:promotions older_than:6m" --action archive --max 10
+python gmail_cleaner.py --query "category:promotions older_than:6m" --action archive --max 10
 
 # Perform the archive after reviewing the query and preview.
-python gmail_clean.py --query "category:promotions older_than:6m" --action archive --max 10 --live
+python gmail_cleaner.py --query "category:promotions older_than:6m" --action archive --max 10 --live
 
 # Move matching messages to Trash.
-python gmail_clean.py --query "category:updates older_than:1y" --action trash --max 10 --live
+python gmail_cleaner.py --query "category:updates older_than:1y" --action trash --max 10 --live
 
 # Preview applying an existing Gmail label.
-python gmail_clean.py --query "from:newsletter@example.com" --action label --label "Newsletters" --max 10
+python gmail_cleaner.py --query "from:newsletter@example.com" --action label --label "Newsletters" --max 10
 
 # Apply that label after reviewing the dry run.
-python gmail_clean.py --query "from:newsletter@example.com" --action label --label "Newsletters" --max 10 --live
+python gmail_cleaner.py --query "from:newsletter@example.com" --action label --label "Newsletters" --max 10 --live
 ```
 
 `--action` accepts `preview` (the default), `archive`, `trash`, or `label`. `--action label` requires `--label NAME`; the name may contain spaces if quoted. `--label` is ignored for other actions. `--max` defaults to 25 and must be between 1 and 500, Gmail's limit for one `messages.list` request. The script does not paginate, so a larger matching set will not be processed in full.
@@ -78,6 +78,6 @@ python gmail_clean.py --query "from:newsletter@example.com" --action label --lab
 ## Local data and secrets
 
 - `credentials.json` contains the OAuth client configuration; `token.json` contains user authorization tokens. Keep both private. The included `.gitignore` prevents Git from adding them in a new repository, but it cannot remove files already committed elsewhere.
-- The script currently writes `token.json` using the machine's default file permissions. Restrict access to these files on a shared computer, for example with `chmod 600 credentials.json token.json` on macOS or Linux.
+- The script writes `token.json` readable only by your user (mode `600`). `credentials.json` keeps whatever permissions it was downloaded with; restrict it on a shared computer, for example with `chmod 600 credentials.json` on macOS or Linux.
 - The script prints sender and subject information to the terminal. Avoid sharing terminal output or logs containing private mail details.
 - If you change the OAuth scope in the code, delete your local `token.json` and authorize again, as noted in the script.

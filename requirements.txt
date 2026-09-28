@@ -1,0 +1,5 @@
+# Versions this project was tested with. "~=" allows bug-fix and minor updates
+# but not a new major version (e.g. ~=2.200 means >=2.200, <3).
+google-api-python-client~=2.200
+google-auth-httplib2~=0.4.2
+google-auth-oauthlib~=1.4

@@ -3,19 +3,21 @@ Gmail Cleaner - Learning Edition (with argparse)
 
 Usage examples:
   python gmail_cleaner.py --query "category:promotions older_than:6m"
-  python gmail_cleaner.py --query "category:social" --action archive --dry-run
+  python gmail_cleaner.py --query "category:social" --action archive
   python gmail_cleaner.py --query "category:updates older_than:1y" --action trash --live
   python gmail_cleaner.py --query "from:newsletter@example.com" --max 30
+  python gmail_cleaner.py --query "from:newsletter@example.com" --action label --label "Newsletters"
 
 Learning focus:
 - argparse (command-line interfaces)
 - Clean function design
 - Safety patterns (dry-run by default)
+- Error handling (fail loudly, never act on bad data)
 - Working with external APIs
 """
 
 import argparse
-import os.path
+import os
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -45,8 +47,12 @@ def get_gmail_service():
             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
             creds = flow.run_local_server(port=0)
 
-        with open("token.json", "w") as token:
+        # 0o600 = read/write for your user only. os.open's mode applies only when
+        # the file is created, so chmod also tightens an existing token.json.
+        fd = os.open("token.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as token:
             token.write(creds.to_json())
+        os.chmod("token.json", 0o600)
 
     return build("gmail", "v1", credentials=creds)
 
@@ -83,7 +89,12 @@ def get_message_preview(service, msg_id: str) -> str:
     return f"From: {sender}\nSubject: {subject}"
 
 
-def modify_messages(service, message_ids: list[str], action: str, dry_run: bool = True, label_name: str = None) -> None:
+def modify_messages(
+        service, 
+        message_ids: list[str], 
+        action: str, 
+        dry_run: bool = True, 
+        label_name: str | None = None) -> None:
     """
     Perform an action on messages.
     
@@ -114,11 +125,15 @@ def modify_messages(service, message_ids: list[str], action: str, dry_run: bool 
             print(f"Archived {count} messages.")
 
         elif action == "trash":
-            service.users().messages().batchModify(
-                userId="me",
-                body={"ids": message_ids, "addLabelIds": ["TRASH"]},
-            ).execute()
-            print(f"Moved {count} messages to Trash.")
+            # messages.trash has no batch version, so trash one message at a time.
+            trashed = 0
+            try:
+                for msg_id in message_ids:
+                    service.users().messages().trash(userId="me", id=msg_id).execute()
+                    trashed += 1
+            finally:
+                # Runs even if a request fails, so the count is always reported.
+                print(f"Moved {trashed} of {count} messages to Trash.")
 
         elif action == "label":
             if not label_name:
@@ -138,6 +153,7 @@ def modify_messages(service, message_ids: list[str], action: str, dry_run: bool 
     except HttpError as error:
         print(f"Error while performing '{action}': {error}")
 
+
 def get_or_create_label(service, label_name: str) -> str:
     """
     Get the ID of a label. Create it if it doesn't exist.
@@ -149,8 +165,8 @@ def get_or_create_label(service, label_name: str) -> str:
     labels = results.get("labels", [])
 
     for label in labels:
-            if label["name"].lower() == label_name.lower():
-                return label["id"]
+        if label["name"].lower() == label_name.lower():
+            return label["id"]
 
     # Label doesn't exist -> create it
     new_label = {
@@ -161,6 +177,7 @@ def get_or_create_label(service, label_name: str) -> str:
     created = service.users().labels().create(userId="me", body=new_label).execute()
     print(f"Created new label: {label_name}")
     return created["id"]
+
 
 def max_results_arg(value: str) -> int:
     """argparse type: an int between 1 and 500 (Gmail's messages.list limit)."""
@@ -267,7 +284,7 @@ def main():
     print("\nTips for learning:")
     print("- Try different --query values")
     print("- Always test with dry-run first")
-    print("- Add a new action (e.g. 'label') as an exercise")
+    print("- Add a --summary flag that counts messages per sender (collections.Counter)")
     print("- Experiment with argparse options")
 
 
