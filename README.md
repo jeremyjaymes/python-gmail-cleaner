@@ -71,11 +71,9 @@ python gmail_clean.py --query "from:newsletter@example.com" --action label --lab
 python gmail_clean.py --query "from:newsletter@example.com" --action label --label "Newsletters" --max 10 --live
 ```
 
-`--action` accepts `preview` (the default), `archive`, `trash`, or `label`. Supply `--label NAME` with `--action label`; the name may contain spaces if quoted. `--label` is ignored for other actions. `--max` defaults to 25. Gmail accepts at most 500 results in one `messages.list` request; this script does not paginate, so a larger matching set will not be processed in full.
+`--action` accepts `preview` (the default), `archive`, `trash`, or `label`. `--action label` requires `--label NAME`; the name may contain spaces if quoted. `--label` is ignored for other actions. `--max` defaults to 25 and must be between 1 and 500, Gmail's limit for one `messages.list` request. The script does not paginate, so a larger matching set will not be processed in full.
 
-**Before using `--live`:** review the query, the displayed messages, and the result count. In the current code, a failed search is reported as “No messages found,” and a failed message preview is displayed as error text while its message ID can still be included in a live batch action. Do not run a live action when any preview shows an error. Gmail may also change between preview and the action; this is a small learning tool, not an audited bulk-mail workflow.
-
-**New label limitation:** the current `get_or_create_label` request uses `messageListVilisty` instead of Gmail's `messageListVisibility` field. Applying an *existing* label avoids that request; creating a missing label may fail until the field name is corrected. See the [Gmail Label resource](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels) for the expected field.
+**Before using `--live`:** review the query, the displayed messages, and the result count. A failed search exits with an error. If any message fails to preview, a dry run leaves it out of the count, and a live run aborts without changing anything. Gmail may also change between preview and the action; this is a small learning tool, not an audited bulk-mail workflow.
 
 ## Local data and secrets
 

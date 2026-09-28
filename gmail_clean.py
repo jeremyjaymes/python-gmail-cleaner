@@ -52,42 +52,35 @@ def get_gmail_service():
 
 
 def search_messages(service, query: str, max_results: int = 50) -> list[dict]:
-    """Search messages using a Gmail query."""
-    try:
-        results = (
-            service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=max_results)
-            .execute()
-        )
-        return results.get("messages", [])
-    except HttpError as error:
-        print(f"Search error: {error}")
-        return []
+    """Search messages using a Gmail query. Raises HttpError on failure."""
+    results = (
+        service.users()
+        .messages()
+        .list(userId="me", q=query, maxResults=max_results)
+        .execute()
+    )
+    return results.get("messages", [])
 
 
 def get_message_preview(service, msg_id: str) -> str:
-    """Return a short readable preview of a message."""
-    try:
-        msg = (
-            service.users()
-            .messages()
-            .get(
-                userId="me",
-                id=msg_id,
-                format="metadata",
-                metadataHeaders=["From", "Subject"],
-            )
-            .execute()
+    """Return a short readable preview of a message. Raises HttpError on failure."""
+    msg = (
+        service.users()
+        .messages()
+        .get(
+            userId="me",
+            id=msg_id,
+            format="metadata",
+            metadataHeaders=["From", "Subject"],
         )
+        .execute()
+    )
 
-        headers = msg.get("payload", {}).get("headers", [])
-        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(No Subject)")
-        sender = next((h["value"] for h in headers if h["name"] == "From"), "(Unknown)")
+    headers = msg.get("payload", {}).get("headers", [])
+    subject = next((h["value"] for h in headers if h["name"] == "Subject"), "(No Subject)")
+    sender = next((h["value"] for h in headers if h["name"] == "From"), "(Unknown)")
 
-        return f"From: {sender}\nSubject: {subject}"
-    except HttpError as error:
-        return f"[Error reading message: {error}]"
+    return f"From: {sender}\nSubject: {subject}"
 
 
 def modify_messages(service, message_ids: list[str], action: str, dry_run: bool = True, label_name: str = None) -> None:
@@ -163,11 +156,19 @@ def get_or_create_label(service, label_name: str) -> str:
     new_label = {
         "name": label_name,
         "labelListVisibility": "labelShow",
-        "messageListVilisty": "show"
+        "messageListVisibility": "show"
     }
     created = service.users().labels().create(userId="me", body=new_label).execute()
     print(f"Created new label: {label_name}")
     return created["id"]
+
+def max_results_arg(value: str) -> int:
+    """argparse type: an int between 1 and 500 (Gmail's messages.list limit)."""
+    number = int(value)
+    if not 1 <= number <= 500:
+        raise argparse.ArgumentTypeError("must be between 1 and 500")
+    return number
+
 
 def parse_args():
     """Parse command-line arguments."""
@@ -188,9 +189,9 @@ def parse_args():
     )
     parser.add_argument(
         "--max",
-        type=int,
+        type=max_results_arg,
         default=25,
-        help="Maximum number of messages to process (default: 25)",
+        help="Maximum number of messages to process, 1-500 (default: 25)",
     )
     parser.add_argument(
         "--live",
@@ -203,7 +204,10 @@ def parse_args():
         help="Name of the label to apply (required when --action label)"
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.action == "label" and not args.label:
+        parser.error("--label is required when using --action label")
+    return args
 
 
 def main():
@@ -218,7 +222,10 @@ def main():
     service = get_gmail_service()
     print("✓ Authenticated\n")
 
-    messages = search_messages(service, args.query, max_results=args.max)
+    try:
+        messages = search_messages(service, args.query, max_results=args.max)
+    except HttpError as error:
+        raise SystemExit(f"Search failed: {error}")
 
     if not messages:
         print("No messages found.")
@@ -228,12 +235,23 @@ def main():
     print("-" * 70)
 
     message_ids = []
+    failed_ids = []
     for i, msg in enumerate(messages, 1):
-        preview = get_message_preview(service, msg["id"])
+        try:
+            preview = get_message_preview(service, msg["id"])
+        except HttpError as error:
+            print(f"{i}. [Error reading message {msg['id']}: {error}]\n")
+            failed_ids.append(msg["id"])
+            continue
         print(f"{i}. {preview}\n")
         message_ids.append(msg["id"])
 
     print("-" * 70)
+
+    if failed_ids:
+        print(f"\n{len(failed_ids)} message(s) could not be previewed.")
+        if args.live:
+            raise SystemExit("Aborting live action. Re-run once every message previews cleanly.")
 
     if args.action == "preview":
         print("\nPreview only — no changes made.")
